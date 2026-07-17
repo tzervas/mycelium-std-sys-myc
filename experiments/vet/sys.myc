@@ -1,0 +1,46 @@
+// nodule: std.sys.sys
+// \[Declared\] Process / environment floor (RFC-0028 §4.5; M-722). Thin, never-silent wrappers over
+// Rust `std::process` and `std::env`.
+//
+// This is the audited syscall floor for `std.sys`'s OS contact: process exit and environment-variable
+// reads. Per LR-9 / RFC-0016 §8-Q6 all such contact lives in this single `std-sys` phylum.
+//
+// # Honesty (VR-5)
+//
+// Every function carries the **`Declared`** guarantee tag — unaudited `std::process` / `std::env`
+// wrappers; no theorem or measured bound backs OS process/env semantics. Promotion requires a
+// checked or measured basis (none in v0).
+//
+// # Never-silent (G2)
+//
+// `get_env` returns an explicit `Option`: a missing or non-Unicode variable is `None`, never an
+// empty-string stand-in. `exit` does not return (it terminates the process), so its "failure mode"
+// is structural — the explicit, caller-chosen status code is the contract. `args` returns an
+// explicit `Result`: a non-UTF-8 argument is an `Err` naming the offending index, **never** a
+// silently-dropped element that would shift the positions of every following arg (G2).
+//
+// # Guarantee matrix (RFC-0016 §4.5)
+//
+// | op | signature | failure mode | tag |
+// |----|-----------|--------------|-----|
+// | `exit` | `(i32) -> !` | n/a (terminates) | `Declared` |
+// | `get_env` | `(&str) -> Option<String>` | missing/non-Unicode → `None` (never-silent) | `Declared` |
+// | `args` | `() -> Result<Vec<String>, NonUtf8Arg>` | non-UTF-8 arg → `Err` (never-silent) | `Declared` |
+// @summary: best-effort transpilation via mycelium-transpile (M-873). Declared,
+// unvalidated — no Mycelium parser/typechecker confirms this output; see the
+// accompanying .gap.json for every construct this pass could not express.
+nodule std.sys.sys;
+
+// \[Declared\] A command-line argument that was not valid UTF-8, reported by its **position**
+// (`index` — arg 0 is the program name) so the offending input is named, never silently dropped
+// (G2). Carries the lossy [`String::from_utf8_lossy`] rendering (`lossy`) so an `EXPLAIN`/diagnostic
+// can *show* the bad arg without fabricating a faithful round-trip it cannot deliver.
+type NonUtf8Arg = NonUtf8Arg(Binary{64}, Bytes);
+
+impl Show[NonUtf8Arg] for NonUtf8Arg {
+  fn render(x: NonUtf8Arg) => Bytes =
+    match x { NonUtf8Arg(p0, p1) => bytes_concat(bytes_concat(bytes_concat(bytes_concat("NonUtf8Arg(", render(p0)), ", "), render(p1)), ")") };
+};
+
+fn eq_NonUtf8Arg(a: NonUtf8Arg, b: NonUtf8Arg) => Binary{1} =
+    match a { NonUtf8Arg(p0, p1) => match b { NonUtf8Arg(q0, q1) => and(eq(p0, q0), bytes_eq(p1, q1)) } };
